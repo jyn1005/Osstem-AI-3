@@ -109,6 +109,32 @@ python src/modules/analytics/gr_ir_matcher.py \
 
 ---
 
+## 개발 일지
+
+### 2026-03-27
+
+**완료 작업**:
+- `src/modules/analytics/gr_ir_matcher.py` — GR/IR 매칭 엔진 초기 구현 완료
+  - `load_gr_data()` / `load_ir_data()`: SAP Excel 로드 및 표준 컬럼 정규화
+  - `match_gr_ir()`: PO 번호 기준 outer join 매칭 + 잔액 계산 + 5분류 레이블링
+  - `add_aging()`: PO일자 기준 경과일수 및 Aging 구간(30일이하/31~60일/61~90일/90일초과) 산출
+  - `export_report()`: 완전매칭·미착품·미확정채무·예외건·전체 5시트 Excel 리포트 생성
+  - CLI: `--gr`, `--ir`, `--output`, `--tolerance` 인자 지원
+- `tests/test_gr_ir_matcher.py` — pytest 단위 테스트 작성 (25개 케이스)
+  - `TestMatchGrIr`: 완전매칭·미착품·미확정채무·예외 분류, 복수 PO, 합산 집계 등
+  - `TestAddAging`: 4개 구간 + NaT 처리
+  - `TestClassify`: `_classify()` 엣지케이스
+- `src/modules/analytics/mr11_processor.py` — SAP MR11SHOW CSV 정제 및 반제리스트 Excel 누적 추가
+- `.claude/skills/push/SKILL.md` — CLAUDE.md 정리 + 자동 커밋·푸시 슬래시 커맨드 생성
+- `.claude/settings.json` — Claude Code 프로젝트 설정 파일 생성
+
+**미확정 사항** (SAP 실제 파일 수령 후 확정 필요):
+- GR/IR Excel 실제 컬럼명 (`GR_COL_MAP`, `IR_COL_MAP` 수정 필요)
+- PO 라인 단위 vs PO 번호 단위 집계 방식 최종 결정
+- 외화 PO 환율 처리 기준 시점
+
+---
+
 ## 도메인 용어
 
 | 용어 | 설명 |
