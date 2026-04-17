@@ -111,6 +111,28 @@ python src/modules/analytics/gr_ir_matcher.py \
 
 ## 개발 일지
 
+### 2026-04-17
+
+**완료 작업**:
+- `src/modules/analytics/mr11_processor.py` — SAP XLS(UTF-16 탭구분) 직접 읽기 지원, 컬럼명 수정(선택번호→전표번호, 항목→품목, 계정 키이름→계정키이름), 색상 회색 계열 변경
+  - `_read_sap_xls()`: UTF-16 LE BOM + 탭구분 SAP 스프레드시트 직접 파싱
+  - `_is_po_number()`: SAP 구매문서번호 식별 (8자리↑, 4로 시작)
+- `src/modules/analytics/mr11show_sap_extractor.py` — SAP MR11SHOW 전체 자동화 v3
+  - F4 matchcode → 전표목록 조회 → 전표별 스프레드시트 내보내기 → 반제리스트 Excel 누적 저장
+  - `get_doc_list_via_matchcode()`: F4 팝업에서 전표번호·전기일자 자동 추출
+  - `_sap_export_to_xls()`: SAP 메뉴 내보내기 → 파일 저장 경로 자동 감지
+  - `extract_single_doc()`: 전표 1개 상세 데이터 추출 (내보내기 → `parse_rawdata()` 연동)
+- `src/modules/analytics/find_alv_mr11show.py` — SAP GUI 컨트롤 트리 덤프 디버그 도구
+- `download_march_all.py` — MR11SHOW 3월 전표 전체 일괄 다운로드 스크립트
+  - SAP F4 matchcode로 전표 목록 읽기 → 3월 필터링 → 전표별 클립보드 내보내기 → 파싱 → 1개 Excel 저장
+  - SAP 클립보드(CF_UNICODETEXT) 고정폭 텍스트 파싱: 2칸 이상 공백으로 필드 분리, `O.xxx.xxxx` 형식 재료코드 지원
+  - 2026년 3월 전표 9개 / 99건 / 차이금액 합계 5,088,278 처리 완료
+
+**미확정 사항**:
+- 파싱 실패 엣지케이스: 내역이 매우 길거나 재료코드 사이 공백이 부족한 행 (86행 수동 수정)
+
+---
+
 ### 2026-03-27
 
 **완료 작업**:
