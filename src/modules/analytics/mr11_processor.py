@@ -23,15 +23,15 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 # ── 설정 ──────────────────────────────────────────────
-HEADER_COLOR  = "1F4E79"   # 헤더 배경 (진한 파랑)
-HEADER_FONT   = "FFFFFF"   # 헤더 글자 (흰색)
-ALT_ROW_COLOR = "D6E4F0"   # 짝수 행 배경 (연한 파랑)
+HEADER_COLOR  = "BFBFBF"   # 헤더 배경 (회색)
+HEADER_FONT   = "000000"   # 헤더 글자 (검정)
+ALT_ROW_COLOR = "F2F2F2"   # 짝수 행 배경 (연한 회색)
 NEW_ROW_COLOR = "E2EFDA"   # 신규 추가 행 배경 (연한 초록) — 추가분 구별용
 
 # 마스터 파일 컬럼 순서
 MASTER_COLS = [
-    "선택번호", "구매 문서", "항목", "PO 일자",
-    "계정 키이름", "이름 1", "차이 수량", "차이 금액",
+    "전표번호", "구매 문서", "품목", "PO 일자",
+    "계정키이름", "이름 1", "차이 수량", "차이 금액",
     "Plnt", "내역", "OUn",
 ]
 # 합계금액이 위치하는 컬럼 인덱스 (1-based, Excel H열 = 8번째)
@@ -62,79 +62,137 @@ def _to_number(text: str) -> float:
 #  1. rawdata CSV 파싱
 # ════════════════════════════════════════════════════════
 
+def _read_sap_xls(path: str) -> list[list[str]]:
+    """
+    SAP 스프레드시트 내보내기 파일 읽기.
+
+    SAP List→Export→Spreadsheet 가 만드는 .XLS 파일은
+    실제로 UTF-16 LE BOM + 탭 구분 텍스트입니다.
+    xlrd / openpyxl 로는 읽을 수 없으므로 텍스트로 직접 읽습니다.
+    """
+    # UTF-16 시도 (SAP 스프레드시트 기본)
+    for enc in ("utf-16", "utf-16-le", "utf-16-be"):
+        try:
+            with open(path, "r", encoding=enc, errors="replace") as f:
+                content = f.read()
+            rows = []
+            for line in content.splitlines():
+                cols = [v.strip() for v in line.split("\t")]
+                rows.append(cols)
+            if any(len(r) > 4 for r in rows):   # 데이터 행이 실제로 있는지 확인
+                return rows
+        except Exception:
+            continue
+
+    # 폴백: openpyxl / xlrd
+    try:
+        df = pd.read_excel(path, header=None, dtype=str)
+        return [_clean_row(row) for _, row in df.iterrows()]
+    except Exception:
+        pass
+
+    raise ValueError(f"SAP XLS 파일을 읽을 수 없습니다: {path}")
+
+
+def _is_po_number(v: str) -> bool:
+    """SAP 구매문서번호 여부: 8자리 이상 숫자, 4 로 시작 (4500..., 4600... 등)."""
+    clean = v.replace(",", "").replace(" ", "")
+    return len(clean) >= 8 and clean.isdigit() and clean.startswith("4")
+
+
 def parse_rawdata(csv_path: str) -> list:
     """
-    MR11SHOW 상세 화면 CSV 1개를 파싱하여 레코드 리스트를 반환합니다.
+    MR11SHOW 상세 화면 rawdata (SAP XLS 또는 CSV)를 파싱하여 레코드 리스트 반환.
 
-    rawdata 구조:
-        행 0 : 선택번호 (col[3] = "5400004821 2026")
+    SAP 스프레드시트 XLS 구조 (탭 구분):
+        행 0 : 전표번호  …  col[3] = "5400004827 2026"
         행 1 : 회사코드
         행 2 : 통화
-        행 3-7: 헤더·빈행
-        행 8~ : 데이터 (A행 / B행 / 빈행 반복)
+        행 3-4: 빈행
+        행 5 : A행 헤더  col[1]=구매문서  col[4]=품목  col[5]=PO일자
+                          col[8]=이름1  col[10]=자재  col[11]=Plnt  col[12]=내역  col[13]=OUn
+        행 6 : B행 헤더  col[1]=품목(선택번호)  col[2]=구매문서  col[6]=품목
+                          col[7]=계정키이름  col[9]=차이수량  col[10]=차이금액
+        행 7 : 빈행
+        행 8~: 데이터 (A행 / B행 / 빈행 반복)
 
-    A행 식별: col[1]이 "45"로 시작(구매문서), col[2]가 빈값
-    B행 식별: col[2]가 "45"로 시작(구매문서), col[1]이 숫자(순번)
-    매핑 기준: A행 col[4] == B행 col[6] (항목번호)
+    A행 식별: col[1] = PO번호(8자리↑, 4로 시작), col[2] = 빈값
+    B행 식별: col[2] = PO번호,  col[1] = 순번(숫자)
+    동일 PO·품목에 계정키이름이 다른 복수 B행 허용 (관세반제 + 운임반제 등)
     """
-    # 인코딩 자동 감지
-    for enc in ("utf-8-sig", "cp949", "euc-kr"):
-        try:
-            df_raw = pd.read_csv(csv_path, header=None, dtype=str, encoding=enc)
-            break
-        except (UnicodeDecodeError, Exception):
-            continue
-    else:
-        raise ValueError(f"파일 인코딩을 읽을 수 없습니다: {csv_path}")
+    ext = os.path.splitext(csv_path)[1].lower()
 
-    rows = [_clean_row(row) for _, row in df_raw.iterrows()]
+    if ext in (".xls", ".xlsx"):
+        rows = _read_sap_xls(csv_path)
+    else:
+        # CSV: 인코딩 자동 감지
+        df_raw = None
+        for enc in ("utf-8-sig", "cp949", "euc-kr"):
+            try:
+                df_raw = pd.read_csv(csv_path, header=None, dtype=str, encoding=enc)
+                break
+            except (UnicodeDecodeError, Exception):
+                continue
+        if df_raw is None:
+            raise ValueError(f"파일 인코딩을 읽을 수 없습니다: {csv_path}")
+        rows = [_clean_row(row) for _, row in df_raw.iterrows()]
 
     if not rows:
         return []
 
-    # 전표번호 추출 (행 0, col[3], 연도 부분 제거: "5400004821 2026" → "5400004821")
-    raw_no = rows[0][3] if len(rows[0]) > 3 else ""
+    # 전표번호 추출 (행 0, col[3], "5400004827 2026" → "5400004827")
+    raw_no  = rows[0][3] if len(rows[0]) > 3 else ""
     전표번호 = raw_no.split()[0] if raw_no else ""
 
     # A행 / B행 분류
-    row_a_list = []   # (항목번호, row)
-    row_b_list = []   # (항목번호, row)
+    row_a_list: list[tuple[str, list]] = []   # (품목번호, row)
+    row_b_list: list[tuple[str, list]] = []   # (품목번호, row)
 
     for row in rows:
-        if len(row) < 12:
+        if len(row) < 8:
             continue
+        col1 = row[1] if len(row) > 1 else ""
+        col2 = row[2] if len(row) > 2 else ""
 
-        is_a = (row[1].startswith("45") and len(row[1]) >= 8 and row[2] == "")
-        is_b = (row[2].startswith("45") and len(row[2]) >= 8 and row[1].isdigit())
+        if _is_po_number(col1) and col2 == "":
+            # A행: col[1]=PO, col[2]=빈값
+            item_no = row[4] if len(row) > 4 else ""
+            row_a_list.append((item_no, row))
+        elif _is_po_number(col2) and col1.isdigit():
+            # B행: col[2]=PO, col[1]=선택순번
+            item_no = row[6] if len(row) > 6 else ""
+            row_b_list.append((item_no, row))
 
-        if is_a:
-            row_a_list.append((row[4], row))   # 항목번호, row
-        elif is_b:
-            row_b_list.append((row[6], row))   # 항목번호, row
+    # B행을 품목번호 기준 리스트 딕셔너리로 변환
+    # (동일 품목에 관세반제·운임반제 등 복수 B행 허용)
+    from collections import defaultdict
+    b_map: dict[str, list] = defaultdict(list)
+    for item_no, row in row_b_list:
+        b_map[item_no].append(row)
 
-    # B행을 항목번호 딕셔너리로 변환
-    b_map = {item_no: row for item_no, row in row_b_list}
-
-    # A행 기준으로 매핑하여 레코드 생성
+    # A행 × B행 매핑 → 레코드 생성
     records = []
     for item_no, row_a in row_a_list:
-        row_b = b_map.get(item_no)
-        if not row_b:
+        b_rows = b_map.get(item_no, [])
+        if not b_rows:
             continue
-
-        records.append({
-            "선택번호":   전표번호,
-            "구매 문서":  row_a[1],
-            "항목":       item_no,
-            "PO 일자":    row_a[5],
-            "계정 키이름": row_b[7],
-            "이름 1":     row_a[8],
-            "차이 수량":  row_b[9],
-            "차이 금액":  row_b[10],
-            "Plnt":       row_a[11],
-            "내역":       row_a[12],
-            "OUn":        row_a[13] if len(row_a) > 13 else "",
-        })
+        for row_b in b_rows:
+            acct = row_b[7] if len(row_b) > 7 else ""
+            if not acct:            # 계정키이름 없으면 스킵
+                continue
+            records.append({
+                "전표번호":   전표번호,
+                "구매 문서":  row_a[1],
+                "품목":       item_no,
+                "PO 일자":    row_a[5]  if len(row_a) > 5  else "",
+                "계정키이름": acct,
+                "이름 1":     row_a[8]  if len(row_a) > 8  else "",
+                "차이 수량":  row_b[9]  if len(row_b) > 9  else "",
+                "차이 금액":  row_b[10] if len(row_b) > 10 else "",
+                "Plnt":       row_a[11] if len(row_a) > 11 else "",
+                "내역":       row_a[12] if len(row_a) > 12 else "",
+                "OUn":        row_a[13] if len(row_a) > 13 else "",
+            })
 
     return records
 
@@ -146,12 +204,18 @@ def parse_rawdata(csv_path: str) -> list:
 def _get_existing_keys(ws) -> set:
     """
     마스터 워크시트에서 중복 체크용 키 집합을 반환합니다.
-    키 = (선택번호, 구매문서, 항목)
+    키 = (전표번호, 구매문서, 품목, 계정키이름)
+    동일 PO·품목에 운임반제·관세반제 등 복수 계정이 있을 수 있으므로 계정키이름 포함.
     """
     keys = set()
     for row in ws.iter_rows(min_row=3, values_only=True):
-        if row[0] and row[1] and row[2]:
-            keys.add((str(row[0]).strip(), str(row[1]).strip(), str(row[2]).strip()))
+        if row[0] and row[1]:
+            keys.add((
+                str(row[0]).strip(),
+                str(row[1]).strip(),
+                str(row[2]).strip() if row[2] else "",
+                str(row[4]).strip() if len(row) > 4 and row[4] else "",
+            ))
     return keys
 
 
@@ -252,9 +316,10 @@ def append_to_master(records: list, master_path: str) -> dict:
 
     for rec in records:
         key = (
-            str(rec.get("선택번호", "")).strip(),
+            str(rec.get("전표번호", "")).strip(),
             str(rec.get("구매 문서", "")).strip(),
-            str(rec.get("항목", "")).strip(),
+            str(rec.get("품목", "")).strip(),
+            str(rec.get("계정키이름", "")).strip(),
         )
         if key in existing_keys:
             skipped += 1
