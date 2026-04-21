@@ -111,6 +111,23 @@ python src/modules/analytics/gr_ir_matcher.py \
 
 ## 개발 일지
 
+### 2026-04-21
+
+**완료 작업**:
+- `mr11_gui.py` — MR11 반제리스트 다운로더 Windows GUI 앱 신규 구현 (tkinter)
+  - 회계연도·전기월 선택, SAP 로그인 안내 팝업, 실행 로그 실시간 출력
+  - 오리 아이콘 적용 (duck.ico, 흰 배경 제거), 작업 표시줄 아이콘 적용
+  - PyInstaller `--onefile --windowed` exe 빌드 (34MB)
+- `download_march_all.py` — argparse로 `--month`/`--year` CLI 인자 추가, 월별 범용 실행 지원
+- Excel 서식 개선: G·H열 회계 표시형식(`_(* #,##0_)`), 오른쪽 정렬, H1 `=SUM` 수식
+- `MR11_2026_02월반제리스트` 59행 I/J/K 파싱 오류 수동 수정 (Plnt/내역/OUn)
+- 연말 전표 필터링 버그 수정: 전기일(2025.12) vs 입력일(2026.01) 혼동 → 회계연도 일치 날짜 우선 선택
+- F4 matchcode 팝업 33개 제한 원인 분석: `MAXRECORDS` 필드·연도 필터·`sendVKey(0)` 방식 적용
+- `read_popup_labels()` → `read_page_direct()` 리팩터링: `usr.Children` 열람 제거, `findById` 직접 경로로 SAP 포커스 유지
+
+**미확정 사항**:
+- `read_page_direct()` 방식으로 80개 전표 전체 읽기 확인 필요 (2025.12 전표 포함 여부)
+
 ### 2026-04-17
 
 **완료 작업**:

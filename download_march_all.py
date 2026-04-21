@@ -1,16 +1,26 @@
 # -*- coding: utf-8 -*-
 """
-MR11SHOW 3월 전표 전체 다운로드 → 1개 Excel 저장
+MR11SHOW 월별 전표 전체 다운로드 → 1개 Excel 저장
+
+사용법:
+    python download_march_all.py --month 4            # 2026년 4월
+    python download_march_all.py --month 4 --year 2026
+    python download_march_all.py -m 4 -y 2026
 """
-import sys, re, time
+import sys, re, time, argparse
 sys.stdout.reconfigure(encoding='utf-8')
 import win32com.client, win32clipboard
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-FISCAL_YEAR = "2026"
-TARGET_MONTH = "03"
+parser = argparse.ArgumentParser(description="MR11SHOW 월별 전표 일괄 다운로드")
+parser.add_argument("--year",  "-y", default="2026", help="회계연도 (기본값: 2026)")
+parser.add_argument("--month", "-m", required=True,  help="대상 월 숫자 (예: 3, 4 ...)")
+args = parser.parse_args()
+
+FISCAL_YEAR  = args.year
+TARGET_MONTH = args.month.zfill(2)   # '4' → '04'
 
 # ── SAP 연결 ──────────────────────────────────────────
 sap_gui = win32com.client.GetObject("SAPGUI")
@@ -20,6 +30,10 @@ print(f"SAP: {session.Info.SystemName} / {session.Info.User}")
 session.findById("wnd[0]/tbar[0]/okcd").text = "/nMR11SHOW"
 session.findById("wnd[0]").sendVKey(0)
 time.sleep(1.5)
+
+# MR11SHOW 첫 화면: 회계연도 입력
+session.findById("wnd[0]/usr/txtKBKP-GJAHR").text = FISCAL_YEAR
+print(f"  회계연도: {FISCAL_YEAR}")
 
 # ── Phase 1: F4 matchcode → 전표 목록 읽기 ───────────
 print("\n[1/3] 전표 목록 조회 중...")
@@ -83,18 +97,20 @@ for page in range(50):
         if not (len(doc) >= 7 and doc.isdigit()):
             continue
         # 날짜: YYYY.MM.DD 패턴이 있는 컬럼
-        date = ""
-        for v in cols.values():
-            m = re.search(r"\d{4}\.\d{2}\.\d{2}", v)
+        all_dates = []
+        for k in sorted(cols.keys()):
+            m = re.search(r"\d{4}\.\d{2}\.\d{2}", cols[k])
             if m:
-                date = m.group()
-                break
+                all_dates.append(m.group())
+        # 회계연도와 일치하는 날짜 우선 (연말전표: 전기일=2025.12 / 입력일=2026.01)
+        date = next((d for d in all_dates if d.startswith(FISCAL_YEAR)), "")
+        if not date and all_dates:
+            date = all_dates[0]
         if doc not in all_docs:
             all_docs[doc] = date
 
     # 다음 페이지
     try:
-        session.findById("wnd[1]").sendVKey(82)  # Ctrl+Home 위치 확인용
         session.findById("wnd[1]").sendVKey(77)  # Page Down
         time.sleep(0.5)
     except:
@@ -261,13 +277,15 @@ BORDER = Border(
 
 wb = openpyxl.Workbook()
 ws = wb.active
-ws.title = "MR11_3월"
+ws.title = f"MR11_{TARGET_MONTH}월"
 
-total = sum(r.get("차이 금액", 0) or 0 for r in all_records)
 for c in range(1, len(COLS) + 1):
     ws.cell(1, c).value = ""
-ws.cell(1, 8).value = total
-ws.cell(1, 8).number_format = "#,##0"
+last_row = len(all_records) + 2
+ws.cell(1, 8).value = f"=SUM(H3:H{last_row})"
+ACCT_FMT = '_(* #,##0_);_(* (#,##0);_(* "-"_);_(@_)'
+ws.cell(1, 8).number_format = ACCT_FMT
+ws.cell(1, 8).alignment = Alignment(horizontal="right", vertical="center")
 
 for ci, col in enumerate(COLS, 1):
     cell = ws.cell(2, ci, value=col)
@@ -285,6 +303,9 @@ for ri, rec in enumerate(all_records, 3):
         cell.font = Font(size=10)
         cell.border = BORDER
         cell.alignment = Alignment(horizontal="center", vertical="center")
+        if ci in (7, 8):  # G=차이 수량, H=차이 금액
+            cell.number_format = ACCT_FMT
+            cell.alignment = Alignment(horizontal="right", vertical="center")
     ws.row_dimensions[ri].height = 16
 
 for col in ws.columns:
@@ -295,7 +316,7 @@ ws.freeze_panes = "A3"
 import os
 from datetime import datetime
 out = os.path.join(os.path.dirname(__file__),
-                   f"MR11_3월반제리스트_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+                   f"MR11_{FISCAL_YEAR}_{TARGET_MONTH}월반제리스트_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
 wb.save(out)
 print(f"\n{'='*55}")
 print(f"  저장 완료: {os.path.basename(out)}")
