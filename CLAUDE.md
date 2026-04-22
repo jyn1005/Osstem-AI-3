@@ -111,6 +111,24 @@ python src/modules/analytics/gr_ir_matcher.py \
 
 ## 개발 일지
 
+### 2026-04-22
+
+**완료 작업**:
+- `mr11_gui.py` — F4 matchcode 전표 조회 0개 버그 근본 수정
+  - `read_page_direct()` row 2 gap 문제 수정: 예외 발생 시 `break` → `consecutive_fails >= 5` 방식으로 변경, 헤더(row 1)·row 2 누락 구간을 건너뛰고 row 3~부터 데이터 정상 읽기
+  - `matchcode_popup_debug.txt` 분석으로 팝업 실제 컬럼 구조 확인 (col 1=전표번호, col 12=연도, col 17=전기일, col 28=입력일)
+  - MAXRECORDS `""` → `"9999"` 로 변경, 날짜 범위 필터 제거 (오히려 0개 야기)
+  - `usr.Children` 미사용 → SAP 스크롤 포커스 유지 → `sendVKey(82)` 페이지 넘김 정상 동작
+- `mr11_gui.py` — `pythoncom.CoInitialize/CoUninitialize()` 추가: 연속 실행 시 `CoInitialize가 호출되지 않았습니다` 오류 수정
+- `mr11_gui.py` — 엑셀 저장 경로 수정: `__file__`(임시폴더) → `sys.executable` 기준 exe 실행 위치로 저장
+- `mr11_gui.py` — 저장 완료 시 알림 팝업 추가 (`messagebox.showinfo`)
+- `mr11_gui.py` — 파일명 형식 변경: `MR11_{연도}_{월}월반제리스트_{타임스탬프}.xlsx` → `MR11반제리스트_{연도}_{월}월.xlsx`
+- `mr11_gui.py` — 음수 표시 형식 변경: `(#,##0)` 괄호형 → `-#,##0` 마이너스 부호형
+- `mr11_gui.py` — `parse_a_row()` I/J/K(Plnt/내역/OUn) 파싱 로직 전면 개선
+  - Case A: `'1000 내역설명'` → 같은 part에 Plnt+내역
+  - Case B: `'1000'` / `'내역설명'` → 별도 part로 분리
+  - Case C: `'1000 내역설명 EA'` → Plnt+내역+OUn이 하나로 묶인 경우 (3SHAPE 등 일부 업체)
+
 ### 2026-04-21
 
 **완료 작업**:

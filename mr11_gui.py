@@ -101,11 +101,14 @@ class App(tk.Tk):
         thread.start()
 
     def _run_task(self, fiscal_year, month_str):
+        import pythoncom
+        pythoncom.CoInitialize()
         try:
             run_download(fiscal_year, month_str, self._log)
         except Exception as e:
             self._log(f"\n[오류] {e}")
         finally:
+            pythoncom.CoUninitialize()
             self.after(0, lambda: self.run_btn.config(state="normal", text="▶  실행"))
 
 
@@ -117,7 +120,7 @@ def run_download(FISCAL_YEAR, month_str, log):
     from openpyxl.utils import get_column_letter
 
     TARGET_MONTH = month_str.zfill(2)
-    ACCT_FMT = '_(* #,##0_);_(* (#,##0);_(* "-"_);_(@_)'
+    ACCT_FMT = '_(* #,##0_);_(* -#,##0_);_(* "-"_);_(@_)'
     BORDER = Border(
         left=Side(style="thin", color="AAAAAA"), right=Side(style="thin", color="AAAAAA"),
         top=Side(style="thin", color="AAAAAA"),  bottom=Side(style="thin", color="AAAAAA"),
@@ -145,93 +148,85 @@ def run_download(FISCAL_YEAR, month_str, log):
 
     # ── Phase 1: F4 matchcode → 전표 목록 ──
     log(f"\n[1/3] {FISCAL_YEAR}년 {TARGET_MONTH}월 전표 목록 조회 중...")
-    TAB = ("wnd[1]/usr/tabsG_SELONETABSTRIP/tabpTAB001"
-           "/ssubSUBSCR_PRESEL:SAPLSDH4:0220/sub:SAPLSDH4:0220")
+    TAB_BASE = ("wnd[1]/usr/tabsG_SELONETABSTRIP/tabpTAB001"
+                "/ssubSUBSCR_PRESEL:SAPLSDH4:0220")
+    TAB = TAB_BASE + "/sub:SAPLSDH4:0220"
 
     session.findById("wnd[0]").maximize()
     session.findById("wnd[0]/usr/ctxtKBKP-BELNR").text = ""
     session.findById("wnd[0]").sendVKey(4)
     time.sleep(1.5)
-    TAB_BASE = ("wnd[1]/usr/tabsG_SELONETABSTRIP/tabpTAB001"
-                "/ssubSUBSCR_PRESEL:SAPLSDH4:0220")
-    # 최대 레코드 제한 해제
-    session.findById(TAB_BASE + "/txtDDSHF4CTRL-MAXRECORDS").text = ""
-    # 회계연도 필터 설정
+
+    # MAXRECORDS 제한 해제 (9999)
+    session.findById(TAB_BASE + "/txtDDSHF4CTRL-MAXRECORDS").text = "9999"
+    # 회계연도 필터 + 날짜 필터 초기화
     session.findById(TAB + "/txtG_SELFLD_TAB-LOW[1,24]").text = FISCAL_YEAR
-    # 전기일 from 필터 초기화
     session.findById(TAB + "/txtG_SELFLD_TAB-LOW[4,24]").text = ""
-    # 연도 필드에 포커스 후 Enter → 검색 실행 (VBScript 동일 방식)
-    session.findById(TAB + "/txtG_SELFLD_TAB-LOW[1,24]").setFocus()
-    session.findById(TAB + "/txtG_SELFLD_TAB-LOW[1,24]").caretPosition = 4
-    session.findById("wnd[1]").sendVKey(0)
+    session.findById(TAB + "/txtG_SELFLD_TAB-LOW[5,24]").text = ""
+    session.findById("wnd[1]/tbar[0]/btn[0]").press()
     time.sleep(2.0)
 
+    # matchcode_popup_debug.txt 분석:
+    # 팝업 레이블 = lbl[col, row] 형식
+    # col 1=전표번호, col 12=연도, col 17=전기일, col 28=입력일
+    # 헤더=row 1, row 2 없음(gap), 데이터=row 3~
+    # → usr.Children 미사용(SAP 스크롤 포커스 유지), findById 직접 접근
     def read_page_direct():
-        """Children 열람 없이 findById 직접 경로로 읽기 → SAP 포커스 유지"""
         result = {}
-        for row in range(1, 50):
+        consecutive_fails = 0
+        for row in range(1, 100):
             try:
                 c1 = session.findById(f"wnd[1]/usr/lbl[1,{row}]").Text.strip()
+                consecutive_fails = 0
+                if not c1:
+                    continue
+                row_data = {1: c1}
+                for col in (12, 17, 28):
+                    try:
+                        t = session.findById(f"wnd[1]/usr/lbl[{col},{row}]").Text.strip()
+                        if t:
+                            row_data[col] = t
+                    except Exception:
+                        pass
+                result[row] = row_data
             except Exception:
-                break
-            if not c1:
-                if row > 5:
+                consecutive_fails += 1
+                if consecutive_fails >= 5:
                     break
-                continue
-            result[row] = {1: c1}
-            for col in range(2, 9):
-                try:
-                    t = session.findById(f"wnd[1]/usr/lbl[{col},{row}]").Text.strip()
-                    if t:
-                        result[row][col] = t
-                except Exception:
-                    pass
         return result
 
     all_docs = {}
     prev_first = None
-    for page in range(50):
+    for page in range(100):
         page_data = read_page_direct()
-        if not page_data:
+        data_rows = {r: d for r, d in page_data.items() if r >= 3}
+        if not data_rows:
             break
-        first_val = page_data.get(1, {}).get(1, "").strip()
-        if first_val == prev_first and page > 0:
+        first_doc = data_rows.get(min(data_rows.keys()), {}).get(1, "").strip()
+        if first_doc == prev_first and page > 0:
             break
-        prev_first = first_val
-        for r, cols in page_data.items():
+        prev_first = first_doc
+        for r, cols in data_rows.items():
             doc = cols.get(1, "").replace(" ", "")
             if not (len(doc) >= 7 and doc.isdigit()):
                 continue
-            all_dates = []
-            for k in sorted(cols.keys()):
-                m = re.search(r"\d{4}\.\d{2}\.\d{2}", cols[k])
-                if m:
-                    all_dates.append(m.group())
-            date = next((d for d in all_dates if d.startswith(FISCAL_YEAR)), "")
-            if not date and all_dates:
-                date = all_dates[0]
+            date = cols.get(17, "")   # 전기일 우선
+            if not date:
+                date = cols.get(28, "")  # 입력일 폴백
             if doc not in all_docs:
                 all_docs[doc] = date
         try:
             session.findById("wnd[1]").sendVKey(82)
-            time.sleep(0.7)
-        except:
+            time.sleep(0.5)
+        except Exception:
             break
 
     session.findById("wnd[1]").sendVKey(12)
     time.sleep(0.5)
 
-    log(f"  전체 전표: {len(all_docs)}개  ← 80이어야 정상")
-    log("  [디버그] 마지막 5개 날짜:")
-    for doc, date in list(sorted(all_docs.items()))[-5:]:
-        log(f"    {doc} → '{date}'")
-
     target_docs = {doc: date for doc, date in all_docs.items()
                    if f"{FISCAL_YEAR}.{TARGET_MONTH}" in date}
-    undated = {doc: date for doc, date in all_docs.items() if not date}
-    if undated:
-        log(f"  날짜 미확인: {len(undated)}개 → 제외")
-    log(f"  {TARGET_MONTH}월 전표: {len(target_docs)}개")
+    log(f"  전체 전표: {len(all_docs)}개 / {TARGET_MONTH}월: {len(target_docs)}개")
     for doc, date in sorted(target_docs.items()):
         log(f"    {doc}  ({date})")
 
@@ -280,21 +275,32 @@ def run_download(FISCAL_YEAR, month_str, log):
         po, item, date, rest = m.group(1), m.group(2), m.group(3), m.group(4).strip()
         parts = [p.strip() for p in re.split(r"\s{2,}", rest) if p.strip()]
         name, plnt, desc, oun = "", "", "", ""
-        if len(parts) >= 4:
+        if not parts:
+            pass
+        elif len(parts) == 1:
             name = parts[0]
-            plnt_desc = parts[2]
-            oun = parts[-1]
-            pd = plnt_desc.split(None, 1)
-            plnt = pd[0] if pd else ""
-            desc = pd[1] if len(pd) > 1 else ""
-        elif len(parts) == 3:
+        else:
             name = parts[0]
-            pd = parts[1].split(None, 1)
-            plnt = pd[0] if pd else ""
-            desc = pd[1] if len(pd) > 1 else ""
-            oun = parts[2]
-        elif parts:
-            name = parts[0]
+            last_tok = parts[-1].split()
+            if last_tok and re.match(r'^\d{4}$', last_tok[0]):
+                # Case C: parts[-1] 자체가 '1000 내역 OUn' 형태로 묶인 경우
+                plnt = last_tok[0]
+                oun  = last_tok[-1] if len(last_tok) > 1 else ""
+                desc = " ".join(last_tok[1:-1]) if len(last_tok) > 2 else ""
+            else:
+                oun = parts[-1]
+                # Plnt: 4자리 숫자 코드(1000, 2000 등)로 시작하는 part 탐색
+                # Case A: '1000 내역설명' → 같은 part에 Plnt+내역
+                # Case B: '1000', '내역설명' → 별도 part로 분리된 경우
+                for idx in range(1, len(parts) - 1):
+                    tok = parts[idx].split(None, 1)
+                    if tok and re.match(r'^\d{4}$', tok[0]):
+                        plnt = tok[0]
+                        if len(tok) > 1:
+                            desc = tok[1]           # Case A: 같은 part에 내역 있음
+                        elif idx + 1 <= len(parts) - 2:
+                            desc = parts[idx + 1]   # Case B: 바로 다음 part가 내역
+                        break
         return {"po": po, "item": item, "date": date,
                 "name": name, "plnt": plnt, "desc": desc, "oun": oun}
 
@@ -396,8 +402,13 @@ def run_download(FISCAL_YEAR, month_str, log):
     ws.column_dimensions["K"].width = 15
     ws.freeze_panes = "A3"
 
-    out = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                       f"MR11_{FISCAL_YEAR}_{TARGET_MONTH}월반제리스트_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+    # exe 실행 위치에 저장 (PyInstaller 환경에서 __file__은 임시폴더를 가리키므로 sys.executable 사용)
+    if hasattr(sys, "_MEIPASS"):
+        save_dir = os.path.dirname(sys.executable)
+    else:
+        save_dir = os.path.dirname(os.path.abspath(__file__))
+    out = os.path.join(save_dir,
+                       f"MR11반제리스트_{FISCAL_YEAR}_{TARGET_MONTH}월.xlsx")
     wb.save(out)
 
     log(f"\n{'='*45}")
@@ -405,6 +416,8 @@ def run_download(FISCAL_YEAR, month_str, log):
     log(f"  전표 수  : {len(target_docs)}개")
     log(f"  데이터   : {len(all_records)}건")
     log(f"{'='*45}")
+
+    messagebox.showinfo("완료", f"완료!\n\n저장 파일: {os.path.basename(out)}\n전표 수: {len(target_docs)}개 / 데이터: {len(all_records)}건")
 
 
 # ── 진입점 ────────────────────────────────────────────────
