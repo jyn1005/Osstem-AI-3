@@ -57,7 +57,7 @@ class App(tk.Tk):
                      highlightbackground=BORDER, highlightthickness=1, **kw)
         return f
 
-    def _label(self, parent, text, bold=False, size=10, fg=LABEL_FG):
+    def _label(self, parent, text, bold=False, size=11, fg=LABEL_FG):
         font = ("맑은 고딕", size, "bold" if bold else "normal")
         return tk.Label(parent, text=text, font=font, fg=fg, bg=parent["bg"])
 
@@ -87,10 +87,11 @@ class App(tk.Tk):
         self._label(card1, "전기월").grid(row=1, column=2, padx=(20,6), pady=8, sticky="e")
         self.month_var = tk.StringVar(value="3")
         style = ttk.Style()
-        style.configure("Custom.TCombobox", padding=4)
+        style.configure("Custom.TCombobox", padding=4, font=("맑은 고딕", 11))
         ttk.Combobox(card1, textvariable=self.month_var,
                      values=[str(i) for i in range(1, 13)],
                      width=6, state="readonly",
+                     font=("맑은 고딕", 11),
                      style="Custom.TCombobox"
                      ).grid(row=1, column=3, sticky="w", pady=8, padx=(0,14))
 
@@ -103,13 +104,13 @@ class App(tk.Tk):
 
         self.save_dir_var = tk.StringVar(value=_default_save_dir())
         dir_entry = tk.Entry(card2, textvariable=self.save_dir_var,
-                             font=("맑은 고딕", 9), relief="solid",
+                             font=("맑은 고딕", 11), relief="solid",
                              highlightbackground=BORDER, highlightthickness=1,
                              state="readonly", readonlybackground="#F9FAFB",
                              fg=LABEL_FG, width=44)
         dir_entry.grid(row=1, column=0, padx=(14, 6), pady=(0, 12), sticky="w")
 
-        tk.Button(card2, text="폴더 선택", font=("맑은 고딕", 9),
+        tk.Button(card2, text="폴더 선택", font=("맑은 고딕", 11),
                   bg="#E5E7EB", fg=LABEL_FG, relief="flat", cursor="hand2",
                   activebackground=BORDER, padx=8, pady=4,
                   command=self._pick_dir).grid(row=1, column=1, pady=(0, 12), padx=(0,14))
