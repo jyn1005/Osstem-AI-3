@@ -5,18 +5,39 @@ MR11 반제리스트 다운로더 - Windows GUI
 import sys, re, time, os, threading
 from datetime import datetime
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
+from tkinter import ttk, messagebox, scrolledtext, filedialog
 
 def _icon_path():
     base = sys._MEIPASS if hasattr(sys, "_MEIPASS") else os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base, "duck.ico")
+
+def _default_save_dir():
+    if hasattr(sys, "_MEIPASS"):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+# ── 색상 팔레트 ───────────────────────────────────────────
+BG        = "#F0F4F8"   # 전체 배경 (연한 청회색)
+CARD      = "#FFFFFF"   # 카드 배경
+HEADER_BG = "#1E3A5F"   # 헤더 배경 (딥 네이비)
+HEADER_FG = "#FFFFFF"
+ACCENT    = "#2563EB"   # 버튼·포인트 (블루)
+ACCENT_HV = "#1D4ED8"   # 호버
+BTN_FG    = "#FFFFFF"
+LABEL_FG  = "#374151"   # 일반 레이블
+MUTED     = "#6B7280"   # 보조 텍스트
+BORDER    = "#D1D5DB"   # 테두리
+LOG_BG    = "#0F172A"   # 로그 배경 (다크 네이비)
+LOG_FG    = "#FFFFFF"   # 로그 기본 텍스트
 
 # ── GUI 앱 ────────────────────────────────────────────────
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("MR11 반제리스트 다운로더")
-        self.resizable(False, False)
+        self.resizable(True, True)
+        self.minsize(560, 580)
+        self.configure(bg=BG)
         try:
             self.iconbitmap(_icon_path())
         except Exception:
@@ -26,46 +47,105 @@ class App(tk.Tk):
 
     def _center(self):
         self.update_idletasks()
-        w, h = 520, 480
+        w, h = 560, 580
         x = (self.winfo_screenwidth()  - w) // 2
         y = (self.winfo_screenheight() - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
 
+    def _card(self, parent, **kw):
+        f = tk.Frame(parent, bg=CARD, relief="flat",
+                     highlightbackground=BORDER, highlightthickness=1, **kw)
+        return f
+
+    def _label(self, parent, text, bold=False, size=10, fg=LABEL_FG):
+        font = ("맑은 고딕", size, "bold" if bold else "normal")
+        return tk.Label(parent, text=text, font=font, fg=fg, bg=parent["bg"])
+
     def _build_ui(self):
-        # ── 타이틀 ──
-        tk.Label(self, text="MR11 반제리스트 다운로더",
-                 font=("맑은 고딕", 14, "bold"), pady=10).pack()
+        # ── 헤더 ──
+        hdr = tk.Frame(self, bg=HEADER_BG, height=64)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        tk.Label(hdr, text="MR11  반제리스트 다운로더",
+                 font=("맑은 고딕", 15, "bold"),
+                 fg=HEADER_FG, bg=HEADER_BG).place(relx=0.5, rely=0.5, anchor="center")
 
-        # ── 입력 영역 ──
-        frm = tk.LabelFrame(self, text="조회 조건", padx=15, pady=10)
-        frm.pack(fill="x", padx=20, pady=(0, 10))
+        # ── 조회 조건 카드 ──
+        card1 = self._card(self)
+        card1.pack(fill="x", padx=20, pady=(16, 0))
 
-        tk.Label(frm, text="회계연도", width=8, anchor="e").grid(row=0, column=0, padx=(0,8), pady=6)
+        self._label(card1, "조회 조건", bold=True, size=10, fg=MUTED).grid(
+            row=0, column=0, columnspan=4, sticky="w", padx=14, pady=(10, 4))
+
+        self._label(card1, "회계연도").grid(row=1, column=0, padx=(14,6), pady=8, sticky="e")
         self.year_var = tk.StringVar(value="2026")
-        tk.Entry(frm, textvariable=self.year_var, width=10,
-                 font=("맑은 고딕", 11)).grid(row=0, column=1, sticky="w")
+        tk.Entry(card1, textvariable=self.year_var, width=9,
+                 font=("맑은 고딕", 11), relief="solid",
+                 highlightbackground=BORDER, highlightthickness=1
+                 ).grid(row=1, column=1, sticky="w", pady=8)
 
-        tk.Label(frm, text="전기월", width=8, anchor="e").grid(row=1, column=0, padx=(0,8), pady=6)
+        self._label(card1, "전기월").grid(row=1, column=2, padx=(20,6), pady=8, sticky="e")
         self.month_var = tk.StringVar(value="3")
-        month_cb = ttk.Combobox(frm, textvariable=self.month_var,
-                                values=[str(i) for i in range(1, 13)],
-                                width=8, state="readonly", font=("맑은 고딕", 11))
-        month_cb.grid(row=1, column=1, sticky="w")
+        style = ttk.Style()
+        style.configure("Custom.TCombobox", padding=4)
+        ttk.Combobox(card1, textvariable=self.month_var,
+                     values=[str(i) for i in range(1, 13)],
+                     width=6, state="readonly",
+                     style="Custom.TCombobox"
+                     ).grid(row=1, column=3, sticky="w", pady=8, padx=(0,14))
+
+        # ── 저장 위치 카드 ──
+        card2 = self._card(self)
+        card2.pack(fill="x", padx=20, pady=(10, 0))
+
+        self._label(card2, "저장 위치", bold=True, size=10, fg=MUTED).grid(
+            row=0, column=0, columnspan=3, sticky="w", padx=14, pady=(10, 4))
+
+        self.save_dir_var = tk.StringVar(value=_default_save_dir())
+        dir_entry = tk.Entry(card2, textvariable=self.save_dir_var,
+                             font=("맑은 고딕", 9), relief="solid",
+                             highlightbackground=BORDER, highlightthickness=1,
+                             state="readonly", readonlybackground="#F9FAFB",
+                             fg=LABEL_FG, width=44)
+        dir_entry.grid(row=1, column=0, padx=(14, 6), pady=(0, 12), sticky="w")
+
+        tk.Button(card2, text="폴더 선택", font=("맑은 고딕", 9),
+                  bg="#E5E7EB", fg=LABEL_FG, relief="flat", cursor="hand2",
+                  activebackground=BORDER, padx=8, pady=4,
+                  command=self._pick_dir).grid(row=1, column=1, pady=(0, 12), padx=(0,14))
 
         # ── 실행 버튼 ──
-        self.run_btn = tk.Button(self, text="▶  실행", font=("맑은 고딕", 12, "bold"),
-                                 bg="#2E75B6", fg="white", activebackground="#1F5C9A",
-                                 relief="flat", cursor="hand2", padx=20, pady=8,
+        btn_frame = tk.Frame(self, bg=BG)
+        btn_frame.pack(pady=14)
+        self.run_btn = tk.Button(btn_frame, text="▶   실행",
+                                 font=("맑은 고딕", 12, "bold"),
+                                 bg=ACCENT, fg=BTN_FG,
+                                 activebackground=ACCENT_HV, activeforeground=BTN_FG,
+                                 disabledforeground=BTN_FG,
+                                 relief="flat", cursor="hand2",
+                                 padx=36, pady=10,
                                  command=self._on_run)
-        self.run_btn.pack(pady=(0, 10))
+        self.run_btn.pack()
 
-        # ── 로그 영역 ──
-        log_frm = tk.LabelFrame(self, text="진행 상황", padx=8, pady=8)
-        log_frm.pack(fill="both", expand=True, padx=20, pady=(0, 15))
-        self.log_box = scrolledtext.ScrolledText(log_frm, height=14, state="disabled",
-                                                 font=("Consolas", 9), bg="#1E1E1E", fg="#D4D4D4",
-                                                 insertbackground="white")
-        self.log_box.pack(fill="both", expand=True)
+        # ── 로그 카드 ──
+        card3 = self._card(self)
+        card3.pack(fill="both", expand=True, padx=20, pady=(0, 16))
+
+        self._label(card3, "진행 상황", bold=True, size=10, fg=MUTED).pack(
+            anchor="w", padx=14, pady=(10, 4))
+
+        self.log_box = scrolledtext.ScrolledText(
+            card3, height=12, state="disabled",
+            font=("Consolas", 9), bg=LOG_BG, fg=LOG_FG,
+            insertbackground="white", relief="flat",
+            borderwidth=0, padx=8, pady=6)
+        self.log_box.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+    def _pick_dir(self):
+        d = filedialog.askdirectory(title="저장 폴더 선택",
+                                    initialdir=self.save_dir_var.get())
+        if d:
+            self.save_dir_var.set(d)
 
     def _log(self, msg):
         def _write():
@@ -82,8 +162,7 @@ class App(tk.Tk):
             messagebox.showerror("입력 오류", "회계연도와 전기월을 올바르게 입력하세요.")
             return
 
-        # SAP 로그인 안내 팝업
-        ok = messagebox.showinfo(
+        messagebox.showinfo(
             "SAP 로그인 확인",
             "SAP GUI에 먼저 로그인되어 있어야 합니다.\n\n"
             f"  · 회계연도 : {year}년\n"
@@ -96,24 +175,25 @@ class App(tk.Tk):
         self.log_box.delete("1.0", "end")
         self.log_box.config(state="disabled")
 
+        save_dir = self.save_dir_var.get()
         thread = threading.Thread(target=self._run_task,
-                                  args=(year, month), daemon=True)
+                                  args=(year, month, save_dir), daemon=True)
         thread.start()
 
-    def _run_task(self, fiscal_year, month_str):
+    def _run_task(self, fiscal_year, month_str, save_dir):
         import pythoncom
         pythoncom.CoInitialize()
         try:
-            run_download(fiscal_year, month_str, self._log)
+            run_download(fiscal_year, month_str, save_dir, self._log)
         except Exception as e:
             self._log(f"\n[오류] {e}")
         finally:
             pythoncom.CoUninitialize()
-            self.after(0, lambda: self.run_btn.config(state="normal", text="▶  실행"))
+            self.after(0, lambda: self.run_btn.config(state="normal", text="▶   실행"))
 
 
 # ── 다운로드 로직 ─────────────────────────────────────────
-def run_download(FISCAL_YEAR, month_str, log):
+def run_download(FISCAL_YEAR, month_str, save_dir, log):
     import win32com.client, win32clipboard
     import openpyxl
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
@@ -210,9 +290,12 @@ def run_download(FISCAL_YEAR, month_str, log):
             doc = cols.get(1, "").replace(" ", "")
             if not (len(doc) >= 7 and doc.isdigit()):
                 continue
-            date = cols.get(17, "")   # 전기일 우선
-            if not date:
-                date = cols.get(28, "")  # 입력일 폴백
+            # 연말 전표 대응: 전기일=2025.12.31 / 입력일=2026.01.xx 혼재
+            # → 회계연도와 일치하는 날짜 우선 선택
+            all_dates = [d for d in [cols.get(17, ""), cols.get(28, "")] if d]
+            date = next((d for d in all_dates if d.startswith(FISCAL_YEAR)), "")
+            if not date and all_dates:
+                date = all_dates[0]
             if doc not in all_docs:
                 all_docs[doc] = date
         try:
@@ -402,11 +485,6 @@ def run_download(FISCAL_YEAR, month_str, log):
     ws.column_dimensions["K"].width = 15
     ws.freeze_panes = "A3"
 
-    # exe 실행 위치에 저장 (PyInstaller 환경에서 __file__은 임시폴더를 가리키므로 sys.executable 사용)
-    if hasattr(sys, "_MEIPASS"):
-        save_dir = os.path.dirname(sys.executable)
-    else:
-        save_dir = os.path.dirname(os.path.abspath(__file__))
     out = os.path.join(save_dir,
                        f"MR11반제리스트_{FISCAL_YEAR}_{TARGET_MONTH}월.xlsx")
     wb.save(out)

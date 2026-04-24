@@ -111,6 +111,21 @@ python src/modules/analytics/gr_ir_matcher.py \
 
 ## 개발 일지
 
+### 2026-04-24
+
+**완료 작업**:
+- `mr11_gui.py` — GUI 전면 색상 재설계
+  - 색상 팔레트 상수 도입: `BG`(연한 청회색) · `HEADER_BG`(딥 네이비) · `ACCENT`(블루) · `LOG_BG`(다크 네이비) 등
+  - 헤더·조회조건·저장위치·로그 영역을 카드(흰색+테두리) 레이아웃으로 구성
+  - 로그 텍스트 색상 흰색(`#FFFFFF`), 실행 중 버튼 `disabledforeground=white` 적용
+  - 창 크기 조절 가능(`resizable(True, True)`, 최소 560×580)
+- `mr11_gui.py` — 저장 위치 선택 기능 추가
+  - `filedialog.askdirectory()` 기반 `폴더 선택` 버튼 추가
+  - 기본값: exe 실행 폴더, 변경 시 선택한 경로로 저장
+  - `run_download()` 함수 시그니처에 `save_dir` 인자 추가
+- `mr11_gui.py` — 연말 전표 날짜 매칭 버그 수정
+  - 전기일(col 17)·입력일(col 28) 중 회계연도 일치 날짜 우선 선택 → 1월 등 연말 전표 누락 방지
+
 ### 2026-04-22
 
 **완료 작업**:
